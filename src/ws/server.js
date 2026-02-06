@@ -1,33 +1,33 @@
 import {WebSocket, WebSocketServer} from 'ws';
-// import {wsArcjet} from "../arcjet.js";
+import {wsArcjet} from "../arcjet.js";
 
-// const matchSubscribers = new Map();
+const matchSubscribers = new Map();
 
-// function subscribe(matchId, socket) {
-//     if(!matchSubscribers.has(matchId)) {
-//         matchSubscribers.set(matchId, new Set());
-//     }
+function subscribe(matchId, socket) {
+    if(!matchSubscribers.has(matchId)) {
+        matchSubscribers.set(matchId, new Set());
+    }
 
-//     matchSubscribers.get(matchId).add(socket);
-// }
+    matchSubscribers.get(matchId).add(socket);
+}
 
-// function unsubscribe(matchId, socket) {
-//     const subscribers = matchSubscribers.get(matchId);
+function unsubscribe(matchId, socket) {
+    const subscribers = matchSubscribers.get(matchId);
 
-//     if(!subscribers) return;
+    if(!subscribers) return;
 
-//     subscribers.delete(socket);
+    subscribers.delete(socket);
 
-//     if(subscribers.size === 0) {
-//         matchSubscribers.delete(matchId);
-//     }
-// }
+    if(subscribers.size === 0) {
+        matchSubscribers.delete(matchId);
+    }
+}
 
-// function cleanupSubscriptions(socket) {
-//     for(const matchId of socket.subscriptions) {
-//         unsubscribe(matchId, socket);
-//     }
-// }
+function cleanupSubscriptions(socket) {
+    for(const matchId of socket.subscriptions) {
+        unsubscribe(matchId, socket);
+    }
+}
 
 function sendJson(socket, payload) {
     if(socket.readyState !== WebSocket.OPEN) return;
@@ -43,137 +43,118 @@ function broadcastToAll(wss, payload) {
     }
 }
 
-// function broadcastToMatch(matchId, payload) {
-//     const subscribers = matchSubscribers.get(matchId);
-//     if(!subscribers || subscribers.size === 0) return;
+function broadcastToMatch(matchId, payload) {
+    const subscribers = matchSubscribers.get(matchId);
+    if(!subscribers || subscribers.size === 0) return;
 
-//     const message = JSON.stringify(payload);
+    const message = JSON.stringify(payload);
 
-//     for(const client of subscribers) {
-//         if(client.readyState === WebSocket.OPEN) {
-//             client.send(message);
-//         }
-//     }
-// }
-
-// function handleMessage(socket, data) {
-//     let message;
-
-//     try {
-//         message = JSON.parse(data.toString());
-//     } catch {
-//         sendJson(socket, { type: 'error', message: 'Invalid JSON' });
-//     }
-
-//     if(message?.type === "subscribe" && Number.isInteger(message.matchId)) {
-//         subscribe(message.matchId, socket);
-//         socket.subscriptions.add(message.matchId);
-//         sendJson(socket, { type: 'subscribed', matchId: message.matchId });
-//         return;
-//     }
-
-//     if(message?.type === "unsubscribe" && Number.isInteger(message.matchId)) {
-//         unsubscribe(message.matchId, socket);
-//         socket.subscriptions.delete(message.matchId);
-//         sendJson(socket, { type: 'unsubscribed', matchId: message.matchId });
-//     }
-// }
-
-export function attachWebSocketServer(server) {
-    const wss =new  WebSocketServer({
-        server,
-        path:"/ws",
-        maxPayload: 1024 * 1024
-
-    });
-    wss.on("connection",(socket)=>{
-        sendJson(socket,{type: 'welcome'});
-        socket.on("error",console.error);
-
-    });
-    function broadcastMatchCreated(match){
-        broadcastToAll(wss,{type:"match_created",data:match});
+    for(const client of subscribers) {
+        if(client.readyState === WebSocket.OPEN) {
+            client.send(message);
+        }
     }
-    return {broadcastMatchCreated}
-    
 }
 
-// export function attachWebSocketServer(server) {
-//     const wss = new WebSocketServer({ noServer: true, path: '/ws', maxPayload: 1024 * 1024 });
+function handleMessage(socket, data) {
+    let message;
 
-//     server.on('upgrade', async (req, socket, head) => {
-//         const { pathname } = new URL(req.url, `http://${req.headers.host}`);
+    try {
+        message = JSON.parse(data.toString());
+    } catch {
+        sendJson(socket, { type: 'error', message: 'Invalid JSON' });
+    }
 
-//         if (pathname !== '/ws') {
-//             return;
-//         }
+    if(message?.type === "subscribe" && Number.isInteger(message.matchId)) {
+        subscribe(message.matchId, socket);
+        socket.subscriptions.add(message.matchId);
+        sendJson(socket, { type: 'subscribed', matchId: message.matchId });
+        return;
+    }
 
-//         if (wsArcjet) {
-//             try {
-//                 const decision = await wsArcjet.protect(req);
+    if(message?.type === "unsubscribe" && Number.isInteger(message.matchId)) {
+        unsubscribe(message.matchId, socket);
+        socket.subscriptions.delete(message.matchId);
+        sendJson(socket, { type: 'unsubscribed', matchId: message.matchId });
+    }
+}
 
-//                 if (decision.isDenied()) {
-//                     if (decision.reason.isRateLimit()) {
-//                         socket.write('HTTP/1.1 429 Too Many Requests\r\n\r\n');
-//                     } else {
-//                         socket.write('HTTP/1.1 403 Forbidden\r\n\r\n');
-//                     }
-//                     socket.destroy();
-//                     return;
-//                 }
-//             } catch (e) {
-//                 console.error('WS upgrade protection error', e);
-//                 socket.write('HTTP/1.1 500 Internal Server Error\r\n\r\n');
-//                 socket.destroy();
-//                 return;
-//             }
-//         }
+export function attachWebSocketServer(server) {
+    const wss = new WebSocketServer({ noServer: true, path: '/ws', maxPayload: 1024 * 1024 });
 
-//         wss.handleUpgrade(req, socket, head, (ws) => {
-//             wss.emit('connection', ws, req);
-//         });
-//     });
+    server.on('upgrade', async (req, socket, head) => {
+        const { pathname } = new URL(req.url, `http://${req.headers.host}`);
 
-//     wss.on('connection', async (socket, req) => {
-//         socket.isAlive = true;
-//         socket.on('pong', () => { socket.isAlive = true; });
+        if (pathname !== '/ws') {
+            return;
+        }
 
-//         socket.subscriptions = new Set();
+        if (wsArcjet) {
+            try {
+                const decision = await wsArcjet.protect(req);
 
-//         sendJson(socket, { type: 'welcome' });
+                if (decision.isDenied()) {
+                    if (decision.reason.isRateLimit()) {
+                        socket.write('HTTP/1.1 429 Too Many Requests\r\n\r\n');
+                    } else {
+                        socket.write('HTTP/1.1 403 Forbidden\r\n\r\n');
+                    }
+                    socket.destroy();
+                    return;
+                }
+            } catch (e) {
+                console.error('WS upgrade protection error', e);
+                socket.write('HTTP/1.1 500 Internal Server Error\r\n\r\n');
+                socket.destroy();
+                return;
+            }
+        }
 
-//         socket.on('message', (data) => {
-//             handleMessage(socket, data);
-//         });
+        wss.handleUpgrade(req, socket, head, (ws) => {
+            wss.emit('connection', ws, req);
+        });
+    });
 
-//         socket.on('error', () => {
-//             socket.terminate();
-//         });
+    wss.on('connection', async (socket, req) => {
+        socket.isAlive = true;
+        socket.on('pong', () => { socket.isAlive = true; });
 
-//         socket.on('close', () => {
-//             cleanupSubscriptions(socket);
-//         })
+        socket.subscriptions = new Set();
 
-//         socket.on('error', console.error);
-//     });
+        sendJson(socket, { type: 'welcome' });
 
-//     const interval = setInterval(() => {
-//         wss.clients.forEach((ws) => {
-//             if (ws.isAlive === false) return ws.terminate();
+        socket.on('message', (data) => {
+            handleMessage(socket, data);
+        });
 
-//             ws.isAlive = false;
-//             ws.ping();
-//         })}, 30000);
+        socket.on('error', () => {
+            socket.terminate();
+        });
 
-//     wss.on('close', () => clearInterval(interval));
+        socket.on('close', () => {
+            cleanupSubscriptions(socket);
+        })
 
-//     function broadcastMatchCreated(match) {
-//         broadcastToAll(wss, { type: 'match_created', data: match });
-//     }
+        socket.on('error', console.error);
+    });
 
-//     function broadcastCommentary(matchId, comment) {
-//         broadcastToMatch(matchId, { type: 'commentary', data: comment });
-//     }
+    const interval = setInterval(() => {
+        wss.clients.forEach((ws) => {
+            if (ws.isAlive === false) return ws.terminate();
 
-//     return { broadcastMatchCreated, broadcastCommentary };
-// }
+            ws.isAlive = false;
+            ws.ping();
+        })}, 30000);
+
+    wss.on('close', () => clearInterval(interval));
+
+    function broadcastMatchCreated(match) {
+        broadcastToAll(wss, { type: 'match_created', data: match });
+    }
+
+    function broadcastCommentary(matchId, comment) {
+        broadcastToMatch(matchId, { type: 'commentary', data: comment });
+    }
+
+    return { broadcastMatchCreated, broadcastCommentary };
+}
